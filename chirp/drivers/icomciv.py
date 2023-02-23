@@ -143,6 +143,30 @@ bbcd ctone_tx[2];             // 15-17 tone rx squelch setting
 char name[10];             // 18-27 Callsign
 """
 
+MEM_IC9700_FORMAT = """
+u8   bank;                 // 1 bank number
+bbcd number[2];            // 2,3
+u8   spl;          // 4 split and select memory settings
+lbcd freq[5];              // 5-9 operating freq
+u8   mode;                 // 10 operating mode
+u8   filter;               // 11 filter
+u8   dataMode;             // 12 data mode setting (on or off)
+u8   duplex:4,             // 13 duplex on/-/+
+     tmode:4;              // 13 tone
+u8   dsql:4,               // 14 digital squelch
+     unknown1:4;           // 14 zero
+bbcd rtone[3];             // 15-17 repeater tone freq
+bbcd ctone[3];             // 18-20 tone squelch setting
+u8   dtcs_polarity;        // 21 DTCS polarity
+bbcd dtcs[2];              // 22-23 DTCS
+u8   digitalSquelch;       // 24 Digital code squelch setting
+lbcd duplexOffset[3];      // 25-27 duplex offset freq
+char destCall[8];          // 28-35 destination call sign
+char accessRepeaterCall[8];// 36-43 access repeater call sign
+char linkRepeaterCall[8];  // 44-51 gateway/link repeater call sign
+char name[16];             // 52-67 Name of station
+"""
+
 MEM_IC7610_FORMAT = """
 bbcd number[2];            // 1,2
 u8   spl:4,                // 3 split and select memory settings
@@ -303,6 +327,8 @@ class DupToneMemFrame(MemFrame):
 class IC7300MemFrame(MemFrame):
     FORMAT = MEM_IC7300_FORMAT
 
+class IC9700MemFrame(BankMemFrame):
+    FORMAT = MEM_IC9700_FORMAT
 
 class IC7610MemFrame(MemFrame):
     FORMAT = MEM_IC7610_FORMAT
@@ -348,7 +374,7 @@ class IcomCIVRadio(icf.IcomLiveRadio):
         "LSB", "USB", "AM", "CW", "RTTY", "FM", "WFM", "CWR"
         "RTTYR", "S-AM", "PSK", None, None, None, None, None,
         None, None, None, None, None, None, None, None,
-        "DV",
+        "DV", None, None, None, None, "DD"
     ]
 
     # Unified modes where mode and filter are combined. See note at
@@ -1057,6 +1083,89 @@ class Icom7300Radio(IcomCIVRadio):      # Added March, 2021 by Rick DeWitt
         self._rf.valid_characters = chirp_common.CHARSET_ASCII
         self._rf.valid_special_chans = sorted(self._SPECIAL_CHANNELS.keys())
 
+@directory.register
+class Icom9700Radio(IcomCIVRadio):      # Added February, 2023 by nemanjan00
+    """Icom IC-9700"""
+    MODEL = "IC-9700"
+    BAUD_RATE = 9600
+    _model = "\xA2"
+    _template = 100              # Use P1 as blank template
+
+    _num_banks = 3		# Banks for 2m, 70cm, 23cm
+    _bank_index_bounds = (1, 99)
+    _bank_class = icf.IcomBank
+
+    _SPECIAL_CHANNELS = {
+        "1A": 100,
+        "1B": 101,
+        "2A": 102,
+        "2B": 103,
+        "3A": 104,
+        "3B": 105,
+        "C1":  106,
+        "C2":  107
+    }
+    _SPECIAL_CHANNELS_REV = dict(zip(_SPECIAL_CHANNELS.values(),
+                                     _SPECIAL_CHANNELS.keys()))
+
+    _SPECIAL_BANKS = {
+        "2m":   1,
+        "70cm": 2,
+        "23cm": 3,
+    }
+    _SPECIAL_BANKS_REV = {v: k for k, v in _SPECIAL_BANKS.items()}
+
+    def _get_special_names(self, band):
+        return sorted([band + "-" + key
+                       for key in self._SPECIAL_CHANNELS.keys()])
+
+    def _is_special(self, number):
+        return isinstance(number, str) or number >= 1000
+
+    def _get_special_info(self, number):
+        info = BankSpecialChannel()
+        if isinstance(number, str):
+            info.name = number
+            (band_name, chan_name) = number.split("-")
+            info.bank = self._SPECIAL_BANKS[band_name]
+            info.channel = self._SPECIAL_CHANNELS[chan_name]
+            info.location = info.bank * 1000 + info.channel
+        else:
+            info.location = number
+            (info.bank, info.channel) = divmod(number, 1000)
+            band_name = self._SPECIAL_BANKS_REV[info.bank]
+            chan_name = self._SPECIAL_CHANNELS_REV[info.channel]
+            info.name = band_name + "-" + chan_name
+        return info
+
+    def _initialize(self):
+        self._classes["mem"] = IC9700MemFrame
+        self._rf.has_name = True
+        self._rf.has_dtcs = True
+        self._rf.has_dtcs_polarity = True
+        self._rf.has_bank = True
+        self._rf.has_tuning_step = False
+        self._rf.has_nostep_tuning = True
+        self._rf.can_odd_split = True
+        self._rf.memory_bounds = (1, 99 * self._num_banks - 1)
+        self._rf.valid_modes = [
+            "LSB", "USB", "AM", "CW", "RTTY", "FM", "CWR", "RTTYR",
+            "DV", "DD"
+        ]
+        self._rf.valid_tmodes = ["", "Tone", "TSQL"]
+        # self._rf.valid_duplexes = ["", "-", "+", "split"]
+        self._rf.valid_duplexes = []     # To prevent using memobj.duplex
+        self._rf.valid_bands = [(144000000, 148000000), (430000000, 45000000), (1240000000, 1300000000)]
+        self._rf.valid_skips = []
+        self._rf.valid_special_chans = (self._get_special_names("2m") +
+                                        self._get_special_names("70cm") +
+                                        self._get_special_names("23cm"))
+        self._rf.valid_name_length = 16
+        self._rf.valid_characters = chirp_common.CHARSET_ASCII
+        self._rf.valid_special_chans = sorted(self._SPECIAL_CHANNELS.keys())
+
+        # Use Chirp locations starting with 1
+        self._adjust_bank_loc_start = True
 
 @directory.register
 class Icom7610Radio(Icom7300Radio):
