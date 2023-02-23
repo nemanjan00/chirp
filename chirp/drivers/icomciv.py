@@ -1155,7 +1155,7 @@ class Icom9700Radio(IcomCIVRadio):      # Added February, 2023 by nemanjan00
         self._rf.valid_tmodes = ["", "Tone", "TSQL"]
         # self._rf.valid_duplexes = ["", "-", "+", "split"]
         self._rf.valid_duplexes = []     # To prevent using memobj.duplex
-        self._rf.valid_bands = [(144000000, 148000000), (430000000, 45000000), (1240000000, 1300000000)]
+        self._rf.valid_bands = [(144000000, 148000000), (430000000, 450000000), (1240000000, 1300000000)]
         self._rf.valid_skips = []
         self._rf.valid_special_chans = (self._get_special_names("2m") +
                                         self._get_special_names("70cm") +
